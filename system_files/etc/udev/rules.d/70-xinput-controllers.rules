@@ -1,0 +1,19 @@
+# Udev rules for Xbox / XInput controllers to ensure seamless Steam Gamescope integration
+
+# Valve Software Steam Controller & Gamepads
+KERNEL=="uinput", MODE="0660", GROUP="input", OPTIONS+="static_node=uinput", TAG+="uaccess"
+
+# Microsoft Xbox 360 / One / Series X|S USB Controllers
+SUBSYSTEM=="usb", ATTR{idVendor}=="045e", MODE="0666", TAG+="uaccess"
+KERNEL=="js*", SUBSYSTEM=="input", ATTRS{id/vendor}=="045e", MODE="0666", TAG+="uaccess"
+
+# Microsoft Xbox Wireless Adapter (Dongle)
+SUBSYSTEM=="usb", ATTR{idVendor}=="045e", ATTR{idProduct}=="02e6", MODE="0666", TAG+="uaccess"
+SUBSYSTEM=="usb", ATTR{idVendor}=="045e", ATTR{idProduct}=="02fe", MODE="0666", TAG+="uaccess"
+
+# 8BitDo Controllers in XInput Mode
+SUBSYSTEM=="usb", ATTR{idVendor}=="2dc8", MODE="0666", TAG+="uaccess"
+
+# PowerA / PDP / Generic XInput Controllers
+SUBSYSTEM=="input", ATTRS{name}=="*Xbox*", MODE="0666", TAG+="uaccess"
+SUBSYSTEM=="input", ATTRS{name}=="*X-Box*", MODE="0666", TAG+="uaccess"

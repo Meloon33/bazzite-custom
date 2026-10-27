@@ -1,0 +1,13 @@
+[Unit]
+Description=Automount NTFS Game Drive with Safe Proton compatdata Redirection
+After=local-fs.target
+Before=steam.service gamescope-session.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/bazzite-ntfs-mount
+TimeoutSec=30
+
+[Install]
+WantedBy=multi-user.target

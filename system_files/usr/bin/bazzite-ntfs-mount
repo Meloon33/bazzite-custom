@@ -1,0 +1,90 @@
+#!/bin/bash
+set -euo pipefail
+
+# Mount helper for D:\LTSC\Gry NTFS game library on Bazzite
+# Ensures safe Proton compatibility by redirecting compatdata to native Linux storage.
+
+MOUNT_POINT="/mnt/games"
+TARGET_SUBDIR="LTSC/Gry"
+
+echo "[bazzite-ntfs-mount] Initializing game drive detection..."
+
+mkdir -p "${MOUNT_POINT}"
+
+# Find NTFS partition containing LTSC/Gry or matching NTFS disk
+DEVICE=""
+
+# Check all block devices with NTFS filesystem
+for dev in $(lsblk -lno PATH,FSTYPE | awk '$2 ~ /ntfs/ {print $1}'); do
+    # Temporarily probe or check blkid/labels
+    if blkid "${dev}" | grep -qi "ntfs"; then
+        # Try mounting read-only temporarily to check for LTSC/Gry signature
+        TMP_PROBE="/tmp/ntfs_probe_$$"
+        mkdir -p "${TMP_PROBE}"
+        if mount -t ntfs3 -o ro "${dev}" "${TMP_PROBE}" 2>/dev/null || mount -t ntfs-3g -o ro "${dev}" "${TMP_PROBE}" 2>/dev/null; then
+            if [ -d "${TMP_PROBE}/${TARGET_SUBDIR}" ] || [ -d "${TMP_PROBE}/steamapps" ]; then
+                DEVICE="${dev}"
+                umount "${TMP_PROBE}" || true
+                rmdir "${TMP_PROBE}" || true
+                break
+            fi
+            umount "${TMP_PROBE}" || true
+        fi
+        rmdir "${TMP_PROBE}" || true
+    fi
+done
+
+if [ -z "${DEVICE}" ]; then
+    echo "[bazzite-ntfs-mount] Warning: Target NTFS game partition not found. Check physical connection and Windows Fast Boot."
+    exit 0
+fi
+
+UUID=$(lsblk -no UUID "${DEVICE}" | head -n1)
+echo "[bazzite-ntfs-mount] Found game partition ${DEVICE} (UUID=${UUID})."
+
+# Check if already mounted
+if grep -qs "${MOUNT_POINT}" /proc/mounts; then
+    echo "[bazzite-ntfs-mount] ${MOUNT_POINT} is already mounted."
+else
+    echo "[bazzite-ntfs-mount] Mounting ${DEVICE} to ${MOUNT_POINT}..."
+    # Attempt kernel ntfs3 first for maximum performance, fallback to ntfs-3g
+    if ! mount -t ntfs3 -o uid=1000,gid=1000,umask=0022,noatime,iocharset=utf8 "${DEVICE}" "${MOUNT_POINT}" 2>/dev/null; then
+        echo "[bazzite-ntfs-mount] ntfs3 mount failed or dirty. Trying lowntfs-3g/ntfs-3g..."
+        mount -t ntfs-3g -o uid=1000,gid=1000,umask=0022,windows_names,big_writes,nofail "${DEVICE}" "${MOUNT_POINT}"
+    fi
+fi
+
+# Setup Proton compatdata redirection
+# Default non-root user is usually UID 1000
+REAL_USER=$(id -un 1000 2>/dev/null || echo "bazzite")
+USER_HOME=$(eval echo "~${REAL_USER}")
+
+NATIVE_COMPAT_DIR="${USER_HOME}/.local/share/bazzite-compatdata"
+mkdir -p "${NATIVE_COMPAT_DIR}"
+chown -R 1000:1000 "${NATIVE_COMPAT_DIR}" || true
+
+GAMES_DIR="${MOUNT_POINT}/${TARGET_SUBDIR}"
+if [ -d "${GAMES_DIR}/steamapps" ]; then
+    TARGET_STEAMAPPS="${GAMES_DIR}/steamapps"
+elif [ -d "${MOUNT_POINT}/steamapps" ]; then
+    TARGET_STEAMAPPS="${MOUNT_POINT}/steamapps"
+else
+    TARGET_STEAMAPPS=""
+fi
+
+if [ -n "${TARGET_STEAMAPPS}" ]; then
+    echo "[bazzite-ntfs-mount] Configuring Steam compatdata redirection for ${TARGET_STEAMAPPS}..."
+    # If compatdata exists and is a directory on NTFS, move/rename it and replace with symlink
+    if [ -d "${TARGET_STEAMAPPS}/compatdata" ] && [ ! -L "${TARGET_STEAMAPPS}/compatdata" ]; then
+        echo "[bazzite-ntfs-mount] Backing up existing NTFS compatdata folder..."
+        mv "${TARGET_STEAMAPPS}/compatdata" "${TARGET_STEAMAPPS}/compatdata.bak.$(date +%s)" || true
+    fi
+
+    # Create symlink if not already present
+    if [ ! -L "${TARGET_STEAMAPPS}/compatdata" ]; then
+        ln -s "${NATIVE_COMPAT_DIR}" "${TARGET_STEAMAPPS}/compatdata"
+        echo "[bazzite-ntfs-mount] Linked compatdata -> ${NATIVE_COMPAT_DIR}"
+    fi
+fi
+
+echo "[bazzite-ntfs-mount] Game drive ready at ${MOUNT_POINT}."
